@@ -124,42 +124,56 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'})
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'})
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename) if file.filename else 'unnamed'
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
         
-        return jsonify({'filename': filename, 'uploaded': True})
-    
-    return jsonify({'error': 'Invalid file type'})
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+        
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename) if file.filename else 'unnamed'
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            # Ensure the upload directory exists
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            file.save(filepath)
+            
+            return jsonify({'filename': filename, 'uploaded': True})
+        
+        return jsonify({'error': 'Invalid file type'}), 400
+    except Exception as e:
+        # Ensure we always return JSON even in case of errors
+        return jsonify({'error': f'Error uploading file: {str(e)}'}), 500
 
 @app.route('/compare', methods=['POST'])
 def compare_images():
-    data = request.get_json()
-    image1 = data.get('image1')
-    image2 = data.get('image2')
-    
-    # Check if both images exist
-    image1_path = os.path.join(app.config['UPLOAD_FOLDER'], image1)
-    image2_path = os.path.join(app.config['UPLOAD_FOLDER'], image2)
-    
-    if not os.path.exists(image1_path) or not os.path.exists(image2_path):
-        return jsonify({'error': 'One or both images not found'})
-    
     try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+            
+        image1 = data.get('image1')
+        image2 = data.get('image2')
+        
+        if not image1 or not image2:
+            return jsonify({'error': 'Both image1 and image2 are required'}), 400
+        
+        # Check if both images exist
+        image1_path = os.path.join(app.config['UPLOAD_FOLDER'], image1)
+        image2_path = os.path.join(app.config['UPLOAD_FOLDER'], image2)
+        
+        if not os.path.exists(image1_path) or not os.path.exists(image2_path):
+            return jsonify({'error': 'One or both images not found'}), 404
+        
         # Compare faces using Gemini API
         result = compare_faces_with_gemini(image1_path, image2_path)
         
         # Format the response
         if 'error' in result:
-            return jsonify(result)
+            return jsonify(result), 400
         
         # Add image names to the result
         result['image1'] = image1
@@ -171,19 +185,23 @@ def compare_images():
             
         return jsonify(result)
     except Exception as e:
-        return jsonify({'error': f'Error comparing images with Gemini: {str(e)}'})
+        return jsonify({'error': f'Error comparing images with Gemini: {str(e)}'}), 500
 
 @app.route('/uploads')
 def list_uploads():
-    if not os.path.exists(UPLOAD_FOLDER):
-        return jsonify({'images': []})
-    
-    images = []
-    for filename in os.listdir(UPLOAD_FOLDER):
-        if allowed_file(filename):
-            images.append(filename)
-    
-    return jsonify({'images': images})
+    try:
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            return jsonify({'images': []})
+        
+        images = []
+        for filename in os.listdir(UPLOAD_FOLDER):
+            if allowed_file(filename):
+                images.append(filename)
+        
+        return jsonify({'images': images})
+    except Exception as e:
+        return jsonify({'error': f'Error listing uploads: {str(e)}'}), 500
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
