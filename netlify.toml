@@ -1,6 +1,10 @@
 [build]
   functions = "functions"
   publish = "templates"
+  command = "pip install -r requirements.txt"
+
+[functions]
+  included_files = ["app.py", "templates/**"]
 
 [[redirects]]
   from = "/*"
