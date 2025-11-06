@@ -15,9 +15,15 @@ from werkzeug.utils import secure_filename
 genai.configure(api_key='AIzaSyABNw_BGiTGp6rFsrD2ksWKa8dQ6qRUW_Y')
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
+
+# Use absolute path for upload folder
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Ensure upload directory exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs('templates', exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -112,12 +118,6 @@ def compare_faces_with_gemini(image1_path, image2_path):
             "raw_response": response.text if hasattr(response, 'text') else str(response)
         }
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
-if not os.path.exists('templates'):
-    os.makedirs('templates')
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -125,8 +125,13 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
+        # Log request details for debugging
+        print(f"Request files: {list(request.files.keys())}")
+        print(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
+        print(f"Upload folder exists: {os.path.exists(app.config['UPLOAD_FOLDER'])}")
+        
         if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
+            return jsonify({'error': 'No file part in request'}), 400
         
         file = request.files['file']
         if file.filename == '':
@@ -139,12 +144,21 @@ def upload_file():
             # Ensure the upload directory exists
             os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
             
+            print(f"Saving file to: {filepath}")
             file.save(filepath)
             
-            return jsonify({'filename': filename, 'uploaded': True})
+            # Verify file was saved
+            if os.path.exists(filepath):
+                return jsonify({'filename': filename, 'uploaded': True})
+            else:
+                return jsonify({'error': 'File was not saved successfully'}), 500
         
         return jsonify({'error': 'Invalid file type'}), 400
     except Exception as e:
+        # Log the full error for debugging
+        print(f"Upload error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         # Ensure we always return JSON even in case of errors
         return jsonify({'error': f'Error uploading file: {str(e)}'}), 500
 
@@ -205,7 +219,15 @@ def list_uploads():
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    try:
+        # Ensure the file exists
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(filepath):
+            return jsonify({'error': f'File {filename} not found'}), 404
+        
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    except Exception as e:
+        return jsonify({'error': f'Error serving file {filename}: {str(e)}'}), 500
 
 @app.route('/delete/<filename>', methods=['DELETE'])
 def delete_file(filename):
